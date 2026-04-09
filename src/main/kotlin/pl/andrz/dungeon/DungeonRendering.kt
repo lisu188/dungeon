@@ -40,41 +40,41 @@ class DungeonRenderer {
 
 private fun scaleDungeon(dungeon: Dungeon): ImageInfo {
     val cellSize = dungeon.cellSize
-    val width = ((dungeon.nCols + 1) * cellSize) + 1
-    val height = ((dungeon.nRows + 1) * cellSize) + 1
-    val font = when {
+    val imageWidth = ((dungeon.nCols + 1) * cellSize) + 1
+    val imageHeight = ((dungeon.nRows + 1) * cellSize) + 1
+    val labelFont = when {
         cellSize > 16 -> Font(Font.MONOSPACED, Font.PLAIN, 14)
         cellSize > 12 -> Font(Font.MONOSPACED, Font.PLAIN, 10)
         else -> Font(Font.MONOSPACED, Font.PLAIN, 8)
     }
 
-    val metricsImage = BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB)
-    val metricsGraphics = metricsImage.createGraphics()
-    metricsGraphics.font = font
-    val metrics = metricsGraphics.fontMetrics
-    val charW = metrics.charWidth('0')
-    val charH = metrics.height
-    val charX = ((cellSize - charW) / 2) + 1
-    val charY = ((cellSize - charH) / 2) + metrics.ascent
-    metricsGraphics.dispose()
+    val fontMetricsImage = BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB)
+    val fontGraphics = fontMetricsImage.createGraphics()
+    fontGraphics.font = labelFont
+    val fontMetrics = fontGraphics.fontMetrics
+    val characterWidth = fontMetrics.charWidth('0')
+    val characterHeight = fontMetrics.height
+    val characterOffsetX = ((cellSize - characterWidth) / 2) + 1
+    val characterBaselineY = ((cellSize - characterHeight) / 2) + fontMetrics.ascent
+    fontGraphics.dispose()
 
     return ImageInfo(
         cellSize = cellSize,
         mapStyle = dungeon.mapStyle,
-        width = width,
-        height = height,
-        maxX = width - 1,
-        maxY = height - 1,
-        font = font,
-        charW = charW,
-        charH = charH,
-        charX = charX,
-        charY = charY,
+        width = imageWidth,
+        height = imageHeight,
+        maxX = imageWidth - 1,
+        maxY = imageHeight - 1,
+        font = labelFont,
+        charW = characterWidth,
+        charH = characterHeight,
+        charX = characterOffsetX,
+        charY = characterBaselineY,
     )
 }
 
-private fun getPalette(image: ImageInfo): Palette =
-    when (image.mapStyle) {
+private fun getPalette(imageInfo: ImageInfo): Palette =
+    when (imageInfo.mapStyle) {
         "Standard" -> Palette(
             fill = Color(0x00, 0x00, 0x00),
             open = Color(0xFF, 0xFF, 0xFF),
@@ -95,10 +95,10 @@ private fun getPalette(image: ImageInfo): Palette =
         )
     }
 
-private fun getColor(palette: Palette, key: String): Color? =
-    generateSequence(key) { colorChain[it] }
-        .mapNotNull { current ->
-            when (current) {
+private fun getColor(palette: Palette, colorKey: String): Color? =
+    generateSequence(colorKey) { colorChain[it] }
+        .mapNotNull { chainKey ->
+            when (chainKey) {
                 "door" -> palette.door
                 "label" -> palette.label
                 "stair" -> palette.stair
@@ -112,8 +112,8 @@ private fun getColor(palette: Palette, key: String): Color? =
         }
         .firstOrNull()
 
-private fun withGraphics(image: BufferedImage, block: (Graphics2D) -> Unit) {
-    val graphics = image.createGraphics()
+private fun withGraphics(bufferedImage: BufferedImage, block: (Graphics2D) -> Unit) {
+    val graphics = bufferedImage.createGraphics()
     try {
         graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF)
         block(graphics)
@@ -122,70 +122,70 @@ private fun withGraphics(image: BufferedImage, block: (Graphics2D) -> Unit) {
     }
 }
 
-private fun baseLayer(dungeon: Dungeon, image: ImageInfo, palette: Palette): BufferedImage {
-    val layer = BufferedImage(image.width, image.height, BufferedImage.TYPE_INT_RGB)
-    withGraphics(layer) { g ->
-        g.color = palette.open
-        g.fillRect(0, 0, image.width, image.height)
-        palette.openGrid?.let { imageGrid(dungeon, image, it, g) }
+private fun baseLayer(dungeon: Dungeon, imageInfo: ImageInfo, palette: Palette): BufferedImage {
+    val baseImage = BufferedImage(imageInfo.width, imageInfo.height, BufferedImage.TYPE_INT_RGB)
+    withGraphics(baseImage) { graphics ->
+        graphics.color = palette.open
+        graphics.fillRect(0, 0, imageInfo.width, imageInfo.height)
+        palette.openGrid?.let { imageGrid(dungeon, imageInfo, it, graphics) }
     }
-    return layer
+    return baseImage
 }
 
-private fun fillImage(dungeon: Dungeon, image: ImageInfo, palette: Palette): BufferedImage {
-    val canvas = BufferedImage(image.width, image.height, BufferedImage.TYPE_INT_RGB)
-    withGraphics(canvas) { g ->
-        g.color = palette.fill
-        g.fillRect(0, 0, image.width, image.height)
+private fun fillImage(dungeon: Dungeon, imageInfo: ImageInfo, palette: Palette): BufferedImage {
+    val filledImage = BufferedImage(imageInfo.width, imageInfo.height, BufferedImage.TYPE_INT_RGB)
+    withGraphics(filledImage) { graphics ->
+        graphics.color = palette.fill
+        graphics.fillRect(0, 0, imageInfo.width, imageInfo.height)
     }
-    return canvas
+    return filledImage
 }
 
-private fun imageGrid(dungeon: Dungeon, image: ImageInfo, color: Color, graphics: Graphics2D) {
+private fun imageGrid(dungeon: Dungeon, imageInfo: ImageInfo, color: Color, graphics: Graphics2D) {
     when (dungeon.grid) {
         "None" -> Unit
-        "Hex" -> hexGrid(image, color, graphics)
-        else -> squareGrid(image, color, graphics)
+        "Hex" -> hexGrid(imageInfo, color, graphics)
+        else -> squareGrid(imageInfo, color, graphics)
     }
 }
 
-private fun squareGrid(image: ImageInfo, color: Color, graphics: Graphics2D) {
+private fun squareGrid(imageInfo: ImageInfo, color: Color, graphics: Graphics2D) {
     graphics.color = color
-    val dim = image.cellSize
-    var x = 0
-    while (x <= image.maxX) {
-        graphics.drawLine(x, 0, x, image.maxY)
-        x += dim
+    val cellSize = imageInfo.cellSize
+    var currentX = 0
+    while (currentX <= imageInfo.maxX) {
+        graphics.drawLine(currentX, 0, currentX, imageInfo.maxY)
+        currentX += cellSize
     }
-    var y = 0
-    while (y <= image.maxY) {
-        graphics.drawLine(0, y, image.maxX, y)
-        y += dim
+    var currentY = 0
+    while (currentY <= imageInfo.maxY) {
+        graphics.drawLine(0, currentY, imageInfo.maxX, currentY)
+        currentY += cellSize
     }
 }
 
-private fun hexGrid(image: ImageInfo, color: Color, graphics: Graphics2D) {
-    val dim = image.cellSize.toDouble()
-    val dy = dim / 2.0
-    val dx = dim / 3.4641016151
-    val nCol = (image.width / (3 * dx)).toInt()
-    val nRow = (image.height / dy).toInt()
+private fun hexGrid(imageInfo: ImageInfo, color: Color, graphics: Graphics2D) {
+    val cellSize = imageInfo.cellSize.toDouble()
+    val rowStep = cellSize / 2.0
+    val columnOffset = cellSize / 3.4641016151
+    val columnCount = (imageInfo.width / (3 * columnOffset)).toInt()
+    val rowCount = (imageInfo.height / rowStep).toInt()
     val previousHint = graphics.getRenderingHint(RenderingHints.KEY_ANTIALIASING)
     graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
     graphics.color = color
 
-    for (i in 0 until nCol) {
-        val x1 = (i * (3 * dx)).toInt()
-        val x2 = (x1 + dx).toInt()
-        val x3 = (x1 + (3 * dx)).toInt()
-        for (j in 0 until nRow) {
-            val y1 = (j * dy).toInt()
-            val y2 = (y1 + dy).toInt()
-            if ((i + j) % 2 == 1) {
-                graphics.drawLine(x1, y1, x2, y2)
-                graphics.drawLine(x2, y2, x3, y2)
+    for (columnIndex in 0 until columnCount) {
+        val leftX = (columnIndex * (3 * columnOffset)).toInt()
+        val centerX = (leftX + columnOffset).toInt()
+        val rightX = (leftX + (3 * columnOffset)).toInt()
+        for (rowIndex in 0 until rowCount) {
+            val topY = (rowIndex * rowStep).toInt()
+            val bottomY = (topY + rowStep).toInt()
+            if ((columnIndex + rowIndex) % 2 == 1) {
+                graphics.drawLine(leftX, topY, centerX, bottomY)
+                graphics.drawLine(centerX, bottomY, rightX, bottomY)
             } else {
-                graphics.drawLine(x2, y1, x1, y2)
+                graphics.drawLine(centerX, topY, leftX, bottomY)
             }
         }
     }
@@ -193,60 +193,60 @@ private fun hexGrid(image: ImageInfo, color: Color, graphics: Graphics2D) {
     graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, previousHint)
 }
 
-private fun openCells(dungeon: Dungeon, image: ImageInfo, baseLayer: BufferedImage, canvas: BufferedImage) {
-    withGraphics(canvas) { g ->
-        val dim = image.cellSize
-        for (r in 0..dungeon.nRows) {
-            val y1 = r * dim
-            val y2 = y1 + dim + 1
-            for (c in 0..dungeon.nCols) {
-                if (dungeon.cell[r][c] hasNot OPENSPACE) {
+private fun openCells(dungeon: Dungeon, imageInfo: ImageInfo, openAreaBaseImage: BufferedImage, canvas: BufferedImage) {
+    withGraphics(canvas) { graphics ->
+        val cellSize = imageInfo.cellSize
+        for (row in 0..dungeon.nRows) {
+            val topY = row * cellSize
+            val bottomY = topY + cellSize + 1
+            for (column in 0..dungeon.nCols) {
+                if (dungeon.cell[row][column] hasNot OPENSPACE) {
                     continue
                 }
-                val x1 = c * dim
-                val x2 = x1 + dim + 1
-                g.drawImage(baseLayer, x1, y1, x2, y2, x1, y1, x2, y2, null)
+                val leftX = column * cellSize
+                val rightX = leftX + cellSize + 1
+                graphics.drawImage(openAreaBaseImage, leftX, topY, rightX, bottomY, leftX, topY, rightX, bottomY, null)
             }
         }
     }
 }
 
-private fun imageWalls(dungeon: Dungeon, image: ImageInfo, palette: Palette, canvas: BufferedImage) {
+private fun imageWalls(dungeon: Dungeon, imageInfo: ImageInfo, palette: Palette, canvas: BufferedImage) {
     val wallColor = palette.wall
-    withGraphics(canvas) { g ->
-        g.color = wallColor
-        val dim = image.cellSize
-        for (r in 0..dungeon.nRows) {
-            val y1 = r * dim
-            val y2 = y1 + dim
-            for (c in 0..dungeon.nCols) {
-                if (dungeon.cell[r][c] hasNot OPENSPACE) {
+    withGraphics(canvas) { graphics ->
+        graphics.color = wallColor
+        val cellSize = imageInfo.cellSize
+        for (row in 0..dungeon.nRows) {
+            val topY = row * cellSize
+            val bottomY = topY + cellSize
+            for (column in 0..dungeon.nCols) {
+                if (dungeon.cell[row][column] hasNot OPENSPACE) {
                     continue
                 }
-                val x1 = c * dim
-                val x2 = x1 + dim
+                val leftX = column * cellSize
+                val rightX = leftX + cellSize
 
-                if (dungeon.cellAt(r - 1, c - 1) hasNot OPENSPACE) {
-                    canvas.setRGB(x1, y1, wallColor.rgb)
+                if (dungeon.cellAt(row - 1, column - 1) hasNot OPENSPACE) {
+                    canvas.setRGB(leftX, topY, wallColor.rgb)
                 }
-                if (dungeon.cellAt(r - 1, c) hasNot OPENSPACE) {
-                    g.drawLine(x1, y1, x2, y1)
+                if (dungeon.cellAt(row - 1, column) hasNot OPENSPACE) {
+                    graphics.drawLine(leftX, topY, rightX, topY)
                 }
-                if (dungeon.cellAt(r, c - 1) hasNot OPENSPACE) {
-                    g.drawLine(x1, y1, x1, y2)
+                if (dungeon.cellAt(row, column - 1) hasNot OPENSPACE) {
+                    graphics.drawLine(leftX, topY, leftX, bottomY)
                 }
-                if (dungeon.cellAt(r, c + 1) hasNot OPENSPACE) {
-                    g.drawLine(x2, y1, x2, y2)
+                if (dungeon.cellAt(row, column + 1) hasNot OPENSPACE) {
+                    graphics.drawLine(rightX, topY, rightX, bottomY)
                 }
-                if (dungeon.cellAt(r + 1, c) hasNot OPENSPACE) {
-                    g.drawLine(x1, y2, x2, y2)
+                if (dungeon.cellAt(row + 1, column) hasNot OPENSPACE) {
+                    graphics.drawLine(leftX, bottomY, rightX, bottomY)
                 }
             }
         }
     }
 }
 
-private fun imageDoors(dungeon: Dungeon, image: ImageInfo, palette: Palette, canvas: BufferedImage) {
+private fun imageDoors(dungeon: Dungeon, imageInfo: ImageInfo, palette: Palette, canvas: BufferedImage) {
     if (dungeon.allDoors.isEmpty()) {
         return
     }
@@ -254,106 +254,116 @@ private fun imageDoors(dungeon: Dungeon, image: ImageInfo, palette: Palette, can
     val archColor = getColor(palette, "wall") ?: palette.wall
     val doorColor = getColor(palette, "door") ?: palette.door
 
-    withGraphics(canvas) { g ->
-        val dim = image.cellSize
-        val aPx = dim / 6
-        val dTx = dim / 4
-        val tTx = dim / 3
+    withGraphics(canvas) { graphics ->
+        val cellSize = imageInfo.cellSize
+        val archInset = cellSize / 6
+        val doorHalfSpan = cellSize / 4
+        val trapHalfSpan = cellSize / 3
 
         for (door in dungeon.allDoors) {
-            val r = door.row
-            val c = door.col
-            val y1 = r * dim
-            val y2 = y1 + dim
-            val x1 = c * dim
-            val x2 = x1 + dim
+            val row = door.row
+            val column = door.col
+            val topY = row * cellSize
+            val bottomY = topY + cellSize
+            val leftX = column * cellSize
+            val rightX = leftX + cellSize
 
-            val vertical = dungeon.cellAt(r, c - 1) has OPENSPACE
-            val xc = if (vertical) (x1 + x2) / 2 else null
-            val yc = if (!vertical) (y1 + y2) / 2 else null
-            val attr = doorAttr(door)
+            val isVerticalDoor = dungeon.cellAt(row, column - 1) has OPENSPACE
+            val centerX = if (isVerticalDoor) (leftX + rightX) / 2 else null
+            val centerY = if (!isVerticalDoor) (topY + bottomY) / 2 else null
+            val doorAttributes = doorAttr(door)
 
-            if (attr["wall"] == true) {
-                g.color = archColor
-                if (xc != null) {
-                    g.drawLine(xc, y1, xc, y2)
-                } else if (yc != null) {
-                    g.drawLine(x1, yc, x2, yc)
+            if (doorAttributes["wall"] == true) {
+                graphics.color = archColor
+                if (centerX != null) {
+                    graphics.drawLine(centerX, topY, centerX, bottomY)
+                } else if (centerY != null) {
+                    graphics.drawLine(leftX, centerY, rightX, centerY)
                 }
             }
 
-            if (attr["secret"] == true) {
-                g.color = doorColor
-                if (xc != null) {
-                    val yMid = (y1 + y2) / 2
-                    g.drawLine(xc - 1, yMid - dTx, xc + 2, yMid - dTx)
-                    g.drawLine(xc - 2, yMid - dTx + 1, xc - 2, yMid - 1)
-                    g.drawLine(xc - 1, yMid, xc + 1, yMid)
-                    g.drawLine(xc + 2, yMid + 1, xc + 2, yMid + dTx - 1)
-                    g.drawLine(xc - 2, yMid + dTx, xc + 1, yMid + dTx)
-                } else if (yc != null) {
-                    val xMid = (x1 + x2) / 2
-                    g.drawLine(xMid - dTx, yc - 2, xMid - dTx, yc + 1)
-                    g.drawLine(xMid - dTx + 1, yc + 2, xMid - 1, yc + 2)
-                    g.drawLine(xMid, yc - 1, xMid, yc + 1)
-                    g.drawLine(xMid + 1, yc - 2, xMid + dTx - 1, yc - 2)
-                    g.drawLine(xMid + dTx, yc - 1, xMid + dTx, yc + 2)
+            if (doorAttributes["secret"] == true) {
+                graphics.color = doorColor
+                if (centerX != null) {
+                    val middleY = (topY + bottomY) / 2
+                    graphics.drawLine(centerX - 1, middleY - doorHalfSpan, centerX + 2, middleY - doorHalfSpan)
+                    graphics.drawLine(centerX - 2, middleY - doorHalfSpan + 1, centerX - 2, middleY - 1)
+                    graphics.drawLine(centerX - 1, middleY, centerX + 1, middleY)
+                    graphics.drawLine(centerX + 2, middleY + 1, centerX + 2, middleY + doorHalfSpan - 1)
+                    graphics.drawLine(centerX - 2, middleY + doorHalfSpan, centerX + 1, middleY + doorHalfSpan)
+                } else if (centerY != null) {
+                    val middleX = (leftX + rightX) / 2
+                    graphics.drawLine(middleX - doorHalfSpan, centerY - 2, middleX - doorHalfSpan, centerY + 1)
+                    graphics.drawLine(middleX - doorHalfSpan + 1, centerY + 2, middleX - 1, centerY + 2)
+                    graphics.drawLine(middleX, centerY - 1, middleX, centerY + 1)
+                    graphics.drawLine(middleX + 1, centerY - 2, middleX + doorHalfSpan - 1, centerY - 2)
+                    graphics.drawLine(middleX + doorHalfSpan, centerY - 1, middleX + doorHalfSpan, centerY + 2)
                 }
             }
 
-            if (attr["arch"] == true) {
-                g.color = archColor
-                if (xc != null) {
-                    g.fillRect(xc - 1, y1, 3, aPx + 1)
-                    g.fillRect(xc - 1, y2 - aPx, 3, aPx + 1)
-                } else if (yc != null) {
-                    g.fillRect(x1, yc - 1, aPx + 1, 3)
-                    g.fillRect(x2 - aPx, yc - 1, aPx + 1, 3)
+            if (doorAttributes["arch"] == true) {
+                graphics.color = archColor
+                if (centerX != null) {
+                    graphics.fillRect(centerX - 1, topY, 3, archInset + 1)
+                    graphics.fillRect(centerX - 1, bottomY - archInset, 3, archInset + 1)
+                } else if (centerY != null) {
+                    graphics.fillRect(leftX, centerY - 1, archInset + 1, 3)
+                    graphics.fillRect(rightX - archInset, centerY - 1, archInset + 1, 3)
                 }
             }
 
-            if (attr["door"] == true) {
-                g.color = doorColor
-                if (xc != null) {
-                    g.drawRect(xc - dTx, y1 + aPx + 1, dTx * 2, (y2 - aPx - 1) - (y1 + aPx + 1))
-                } else if (yc != null) {
-                    g.drawRect(x1 + aPx + 1, yc - dTx, (x2 - aPx - 1) - (x1 + aPx + 1), dTx * 2)
+            if (doorAttributes["door"] == true) {
+                graphics.color = doorColor
+                if (centerX != null) {
+                    graphics.drawRect(
+                        centerX - doorHalfSpan,
+                        topY + archInset + 1,
+                        doorHalfSpan * 2,
+                        (bottomY - archInset - 1) - (topY + archInset + 1),
+                    )
+                } else if (centerY != null) {
+                    graphics.drawRect(
+                        leftX + archInset + 1,
+                        centerY - doorHalfSpan,
+                        (rightX - archInset - 1) - (leftX + archInset + 1),
+                        doorHalfSpan * 2,
+                    )
                 }
             }
 
-            if (attr["lock"] == true) {
-                g.color = doorColor
-                if (xc != null) {
-                    g.drawLine(xc, y1 + aPx + 1, xc, y2 - aPx - 1)
-                } else if (yc != null) {
-                    g.drawLine(x1 + aPx + 1, yc, x2 - aPx - 1, yc)
+            if (doorAttributes["lock"] == true) {
+                graphics.color = doorColor
+                if (centerX != null) {
+                    graphics.drawLine(centerX, topY + archInset + 1, centerX, bottomY - archInset - 1)
+                } else if (centerY != null) {
+                    graphics.drawLine(leftX + archInset + 1, centerY, rightX - archInset - 1, centerY)
                 }
             }
 
-            if (attr["trap"] == true) {
-                g.color = doorColor
-                if (xc != null) {
-                    val yMid = (y1 + y2) / 2
-                    g.drawLine(xc - tTx, yMid, xc + tTx, yMid)
-                } else if (yc != null) {
-                    val xMid = (x1 + x2) / 2
-                    g.drawLine(xMid, yc - tTx, xMid, yc + tTx)
+            if (doorAttributes["trap"] == true) {
+                graphics.color = doorColor
+                if (centerX != null) {
+                    val middleY = (topY + bottomY) / 2
+                    graphics.drawLine(centerX - trapHalfSpan, middleY, centerX + trapHalfSpan, middleY)
+                } else if (centerY != null) {
+                    val middleX = (leftX + rightX) / 2
+                    graphics.drawLine(middleX, centerY - trapHalfSpan, middleX, centerY + trapHalfSpan)
                 }
             }
 
-            if (attr["portc"] == true) {
-                g.color = doorColor
-                if (xc != null) {
-                    var y = y1 + aPx + 2
-                    while (y < y2 - aPx) {
-                        canvas.setRGB(xc, y, doorColor.rgb)
-                        y += 2
+            if (doorAttributes["portc"] == true) {
+                graphics.color = doorColor
+                if (centerX != null) {
+                    var currentY = topY + archInset + 2
+                    while (currentY < bottomY - archInset) {
+                        canvas.setRGB(centerX, currentY, doorColor.rgb)
+                        currentY += 2
                     }
-                } else if (yc != null) {
-                    var x = x1 + aPx + 2
-                    while (x < x2 - aPx) {
-                        canvas.setRGB(x, yc, doorColor.rgb)
-                        x += 2
+                } else if (centerY != null) {
+                    var currentX = leftX + archInset + 2
+                    while (currentX < rightX - archInset) {
+                        canvas.setRGB(currentX, centerY, doorColor.rgb)
+                        currentX += 2
                     }
                 }
             }
@@ -362,54 +372,54 @@ private fun imageDoors(dungeon: Dungeon, image: ImageInfo, palette: Palette, can
 }
 
 private fun doorAttr(door: Door): Map<String, Boolean> {
-    val attr = mutableMapOf<String, Boolean>()
+    val doorAttributes = mutableMapOf<String, Boolean>()
     when (door.key) {
-        "arch" -> attr["arch"] = true
+        "arch" -> doorAttributes["arch"] = true
         "open" -> {
-            attr["arch"] = true
-            attr["door"] = true
+            doorAttributes["arch"] = true
+            doorAttributes["door"] = true
         }
         "lock" -> {
-            attr["arch"] = true
-            attr["door"] = true
-            attr["lock"] = true
+            doorAttributes["arch"] = true
+            doorAttributes["door"] = true
+            doorAttributes["lock"] = true
         }
         "trap" -> {
-            attr["arch"] = true
-            attr["door"] = true
-            attr["trap"] = true
+            doorAttributes["arch"] = true
+            doorAttributes["door"] = true
+            doorAttributes["trap"] = true
             if (door.desc?.contains("Lock") == true) {
-                attr["lock"] = true
+                doorAttributes["lock"] = true
             }
         }
         "secret" -> {
-            attr["wall"] = true
-            attr["arch"] = true
-            attr["secret"] = true
+            doorAttributes["wall"] = true
+            doorAttributes["arch"] = true
+            doorAttributes["secret"] = true
         }
         "portc" -> {
-            attr["arch"] = true
-            attr["portc"] = true
+            doorAttributes["arch"] = true
+            doorAttributes["portc"] = true
         }
     }
-    return attr
+    return doorAttributes
 }
 
-private fun imageLabels(dungeon: Dungeon, image: ImageInfo, palette: Palette, canvas: BufferedImage) {
-    val color = getColor(palette, "label") ?: palette.label
-    withGraphics(canvas) { g ->
-        g.color = color
-        g.font = image.font
-        val dim = image.cellSize
-        for (r in 0..dungeon.nRows) {
-            for (c in 0..dungeon.nCols) {
-                if (dungeon.cell[r][c] hasNot OPENSPACE) {
+private fun imageLabels(dungeon: Dungeon, imageInfo: ImageInfo, palette: Palette, canvas: BufferedImage) {
+    val labelColor = getColor(palette, "label") ?: palette.label
+    withGraphics(canvas) { graphics ->
+        graphics.color = labelColor
+        graphics.font = imageInfo.font
+        val cellSize = imageInfo.cellSize
+        for (row in 0..dungeon.nRows) {
+            for (column in 0..dungeon.nCols) {
+                if (dungeon.cell[row][column] hasNot OPENSPACE) {
                     continue
                 }
-                val char = cellLabel(dungeon.cell[r][c]) ?: continue
-                val x = (c * dim) + image.charX
-                val y = (r * dim) + image.charY
-                g.drawString(char.toString(), x, y)
+                val labelCharacter = cellLabel(dungeon.cell[row][column]) ?: continue
+                val drawX = (column * cellSize) + imageInfo.charX
+                val drawY = (row * cellSize) + imageInfo.charY
+                graphics.drawString(labelCharacter.toString(), drawX, drawY)
             }
         }
     }
@@ -421,62 +431,78 @@ private fun cellLabel(cell: Int): Char? =
         ?.toChar()
         ?.takeIf(Char::isDigit)
 
-private fun imageStairs(dungeon: Dungeon, image: ImageInfo, palette: Palette, canvas: BufferedImage) {
+private fun imageStairs(dungeon: Dungeon, imageInfo: ImageInfo, palette: Palette, canvas: BufferedImage) {
     if (dungeon.stairs.isEmpty()) {
         return
     }
 
-    val color = getColor(palette, "stair") ?: palette.stair
-    withGraphics(canvas) { g ->
-        g.color = color
-        val dim = image.cellSize
-        val sPx = dim / 2
-        val tPx = (dim / 20) + 2
+    val stairColor = getColor(palette, "stair") ?: palette.stair
+    withGraphics(canvas) { graphics ->
+        graphics.color = stairColor
+        val cellSize = imageInfo.cellSize
+        val stairHalfWidth = cellSize / 2
+        val stairLineStep = (cellSize / 20) + 2
 
         for (stair in dungeon.stairs) {
             when {
                 stair.nextRow > stair.row -> {
-                    val xc = ((stair.col + 0.5) * dim).toInt()
-                    val y1 = stair.row * dim
-                    val y2 = (stair.nextRow + 1) * dim
-                    var y = y1
-                    while (y < y2) {
-                        val dx = if (stair.key == "down") (((y - y1).toDouble() / (y2 - y1)) * sPx).toInt() else sPx
-                        g.drawLine(xc - dx, y, xc + dx, y)
-                        y += tPx
+                    val centerX = ((stair.col + 0.5) * cellSize).toInt()
+                    val startY = stair.row * cellSize
+                    val endY = (stair.nextRow + 1) * cellSize
+                    var currentY = startY
+                    while (currentY < endY) {
+                        val stairWidth = if (stair.key == "down") {
+                            (((currentY - startY).toDouble() / (endY - startY)) * stairHalfWidth).toInt()
+                        } else {
+                            stairHalfWidth
+                        }
+                        graphics.drawLine(centerX - stairWidth, currentY, centerX + stairWidth, currentY)
+                        currentY += stairLineStep
                     }
                 }
                 stair.nextRow < stair.row -> {
-                    val xc = ((stair.col + 0.5) * dim).toInt()
-                    val y1 = (stair.row + 1) * dim
-                    val y2 = stair.nextRow * dim
-                    var y = y1
-                    while (y > y2) {
-                        val dx = if (stair.key == "down") (((y - y1).toDouble() / (y2 - y1)) * sPx).toInt() else sPx
-                        g.drawLine(xc - dx, y, xc + dx, y)
-                        y -= tPx
+                    val centerX = ((stair.col + 0.5) * cellSize).toInt()
+                    val startY = (stair.row + 1) * cellSize
+                    val endY = stair.nextRow * cellSize
+                    var currentY = startY
+                    while (currentY > endY) {
+                        val stairWidth = if (stair.key == "down") {
+                            (((currentY - startY).toDouble() / (endY - startY)) * stairHalfWidth).toInt()
+                        } else {
+                            stairHalfWidth
+                        }
+                        graphics.drawLine(centerX - stairWidth, currentY, centerX + stairWidth, currentY)
+                        currentY -= stairLineStep
                     }
                 }
                 stair.nextCol > stair.col -> {
-                    val x1 = stair.col * dim
-                    val x2 = (stair.nextCol + 1) * dim
-                    val yc = ((stair.row + 0.5) * dim).toInt()
-                    var x = x1
-                    while (x < x2) {
-                        val dy = if (stair.key == "down") (((x - x1).toDouble() / (x2 - x1)) * sPx).toInt() else sPx
-                        g.drawLine(x, yc - dy, x, yc + dy)
-                        x += tPx
+                    val startX = stair.col * cellSize
+                    val endX = (stair.nextCol + 1) * cellSize
+                    val centerY = ((stair.row + 0.5) * cellSize).toInt()
+                    var currentX = startX
+                    while (currentX < endX) {
+                        val stairHeight = if (stair.key == "down") {
+                            (((currentX - startX).toDouble() / (endX - startX)) * stairHalfWidth).toInt()
+                        } else {
+                            stairHalfWidth
+                        }
+                        graphics.drawLine(currentX, centerY - stairHeight, currentX, centerY + stairHeight)
+                        currentX += stairLineStep
                     }
                 }
                 stair.nextCol < stair.col -> {
-                    val x1 = (stair.col + 1) * dim
-                    val x2 = stair.nextCol * dim
-                    val yc = ((stair.row + 0.5) * dim).toInt()
-                    var x = x1
-                    while (x > x2) {
-                        val dy = if (stair.key == "down") (((x - x1).toDouble() / (x2 - x1)) * sPx).toInt() else sPx
-                        g.drawLine(x, yc - dy, x, yc + dy)
-                        x -= tPx
+                    val startX = (stair.col + 1) * cellSize
+                    val endX = stair.nextCol * cellSize
+                    val centerY = ((stair.row + 0.5) * cellSize).toInt()
+                    var currentX = startX
+                    while (currentX > endX) {
+                        val stairHeight = if (stair.key == "down") {
+                            (((currentX - startX).toDouble() / (endX - startX)) * stairHalfWidth).toInt()
+                        } else {
+                            stairHalfWidth
+                        }
+                        graphics.drawLine(currentX, centerY - stairHeight, currentX, centerY + stairHeight)
+                        currentX -= stairLineStep
                     }
                 }
             }
@@ -485,16 +511,16 @@ private fun imageStairs(dungeon: Dungeon, image: ImageInfo, palette: Palette, ca
 }
 
 private fun imageDungeon(dungeon: Dungeon): String {
-    val image = scaleDungeon(dungeon)
-    val palette = getPalette(image)
-    val baseLayer = baseLayer(dungeon, image, palette)
-    val canvas = fillImage(dungeon, image, palette)
+    val imageInfo = scaleDungeon(dungeon)
+    val palette = getPalette(imageInfo)
+    val openAreaBaseImage = baseLayer(dungeon, imageInfo, palette)
+    val canvas = fillImage(dungeon, imageInfo, palette)
 
-    openCells(dungeon, image, baseLayer, canvas)
-    imageWalls(dungeon, image, palette, canvas)
-    imageDoors(dungeon, image, palette, canvas)
-    imageLabels(dungeon, image, palette, canvas)
-    imageStairs(dungeon, image, palette, canvas)
+    openCells(dungeon, imageInfo, openAreaBaseImage, canvas)
+    imageWalls(dungeon, imageInfo, palette, canvas)
+    imageDoors(dungeon, imageInfo, palette, canvas)
+    imageLabels(dungeon, imageInfo, palette, canvas)
+    imageStairs(dungeon, imageInfo, palette, canvas)
 
     return File("${dungeon.seed}.gif")
         .takeIf { ImageIO.write(canvas, "gif", it) }

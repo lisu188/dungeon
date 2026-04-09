@@ -136,20 +136,20 @@ data class SoundRoomResult(
     val hits: MutableMap<Int, Int> = mutableMapOf(),
 )
 
-class Dungeon(opts: DungeonOptions) {
-    val seed: Long = opts.seed
-    var nRows: Int = opts.nRows
-    var nCols: Int = opts.nCols
-    val dungeonLayout: String = opts.dungeonLayout
-    val roomMin: Int = opts.roomMin
-    val roomMax: Int = opts.roomMax
-    val roomLayout: String = opts.roomLayout
-    val corridorLayout: String = opts.corridorLayout
-    val removeDeadends: Int = opts.removeDeadends
-    val addStairs: Int = opts.addStairs
-    val mapStyle: String = opts.mapStyle
-    val cellSize: Int = opts.cellSize
-    val grid: String = opts.grid
+class Dungeon(options: DungeonOptions) {
+    val seed: Long = options.seed
+    var nRows: Int = options.nRows
+    var nCols: Int = options.nCols
+    val dungeonLayout: String = options.dungeonLayout
+    val roomMin: Int = options.roomMin
+    val roomMax: Int = options.roomMax
+    val roomLayout: String = options.roomLayout
+    val corridorLayout: String = options.corridorLayout
+    val removeDeadends: Int = options.removeDeadends
+    val addStairs: Int = options.addStairs
+    val mapStyle: String = options.mapStyle
+    val cellSize: Int = options.cellSize
+    val grid: String = options.grid
 
     var nI: Int
     var nJ: Int
@@ -182,5 +182,5 @@ class Dungeon(opts: DungeonOptions) {
     fun nextInt(bound: Int): Int = bound.takeIf { it > 0 }?.let(random::nextInt) ?: 0
 }
 
-internal fun Dungeon.cellAt(r: Int, c: Int): Int =
-    if (r !in 0..nRows || c !in 0..nCols) NOTHING else cell[r][c]
+internal fun Dungeon.cellAt(row: Int, column: Int): Int =
+    if (row !in 0..nRows || column !in 0..nCols) NOTHING else cell[row][column]
