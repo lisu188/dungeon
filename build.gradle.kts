@@ -19,7 +19,7 @@ kotlin {
 }
 
 application {
-    mainClass.set("pl.andrz.dungeon.DungeonKt")
+    mainClass.set("pl.andrz.dungeon.MainKt")
 }
 
 tasks.test {
