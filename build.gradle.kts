@@ -19,10 +19,9 @@ kotlin {
 }
 
 application {
-    mainClass.set("DungeonKt")
+    mainClass.set("pl.andrz.dungeon.DungeonKt")
 }
 
 tasks.test {
     useJUnitPlatform()
 }
-

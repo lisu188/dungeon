@@ -1,3 +1,5 @@
+package pl.andrz.dungeon
+
 import java.awt.Color
 import java.awt.Font
 import java.awt.Graphics2D
@@ -5,42 +7,50 @@ import java.awt.RenderingHints
 import java.awt.image.BufferedImage
 import java.io.File
 import java.time.Instant
-import java.util.Random
 import javax.imageio.ImageIO
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
+import kotlin.random.Random
 
 // Kotlin application version of the dungeon.pl translation.
 
-const val NOTHING = 0x00000000
+private const val NOTHING = 0x00000000
 
-const val BLOCKED = 0x00000001
-const val ROOM = 0x00000002
-const val CORRIDOR = 0x00000004
-const val PERIMETER = 0x00000010
-const val ENTRANCE = 0x00000020
-const val ROOM_ID = 0x0000FFC0
+private const val BLOCKED = 0x00000001
+private const val ROOM = 0x00000002
+private const val CORRIDOR = 0x00000004
+private const val PERIMETER = 0x00000010
+private const val ENTRANCE = 0x00000020
+private const val ROOM_ID = 0x0000FFC0
 
-const val ARCH = 0x00010000
-const val DOOR = 0x00020000
-const val LOCKED = 0x00040000
-const val TRAPPED = 0x00080000
-const val SECRET = 0x00100000
-const val PORTC = 0x00200000
-const val STAIR_DN = 0x00400000
-const val STAIR_UP = 0x00800000
+private const val ARCH = 0x00010000
+private const val DOOR = 0x00020000
+private const val LOCKED = 0x00040000
+private const val TRAPPED = 0x00080000
+private const val SECRET = 0x00100000
+private const val PORTC = 0x00200000
+private const val STAIR_DN = 0x00400000
+private const val STAIR_UP = 0x00800000
 
-const val LABEL = -0x01000000
+private const val LABEL = -0x01000000
 
-val OPENSPACE = ROOM or CORRIDOR
-val DOORSPACE = ARCH or DOOR or LOCKED or TRAPPED or SECRET or PORTC
-val ESPACE = ENTRANCE or DOORSPACE or LABEL
-val STAIRS = STAIR_DN or STAIR_UP
+private val OPENSPACE = ROOM or CORRIDOR
+private val DOORSPACE = ARCH or DOOR or LOCKED or TRAPPED or SECRET or PORTC
+private val ESPACE = ENTRANCE or DOORSPACE or LABEL
+private val STAIRS = STAIR_DN or STAIR_UP
 
-val BLOCK_ROOM = BLOCKED or ROOM
-val BLOCK_CORR = BLOCKED or PERIMETER or CORRIDOR
-val BLOCK_DOOR = BLOCKED or DOORSPACE
+private val BLOCK_ROOM = BLOCKED or ROOM
+private val BLOCK_CORR = BLOCKED or PERIMETER or CORRIDOR
+private val BLOCK_DOOR = BLOCKED or DOORSPACE
+
+private infix fun Int.has(flag: Int): Boolean = this and flag != 0
+private infix fun Int.withFlag(flag: Int): Int = this or flag
+private infix fun Int.withoutFlag(flag: Int): Int = this and flag.inv()
+private val Int.roomIdValue: Int
+    get() = (this and ROOM_ID) ushr 6
+
+private fun glyph(char: Char): Int = char.code shl 24
 
 enum class Direction(val di: Int, val dj: Int) {
     NORTH(-1, 0),
@@ -69,7 +79,7 @@ data class TunnelCheck(
     val recurse: Delta? = null,
 )
 
-data class Options(
+data class DungeonOptions(
     val seed: Long = Instant.now().epochSecond,
     val nRows: Int = 39,
     val nCols: Int = 39,
@@ -163,7 +173,7 @@ data class ImageInfo(
     val charY: Int,
 )
 
-class Dungeon(opts: Options) {
+class Dungeon(opts: DungeonOptions) {
     val seed: Long = opts.seed
     var nRows: Int = opts.nRows
     var nCols: Int = opts.nCols
@@ -206,10 +216,10 @@ class Dungeon(opts: Options) {
         cell = Array(nRows + 1) { IntArray(nCols + 1) { NOTHING } }
     }
 
-    fun nextInt(bound: Int): Int = if (bound <= 0) 0 else random.nextInt(bound)
+    fun nextInt(bound: Int): Int = bound.takeIf { it > 0 }?.let(random::nextInt) ?: 0
 }
 
-val dungeonLayouts = mapOf(
+private val dungeonLayouts = mapOf(
     "Box" to listOf(
         listOf(1, 1, 1),
         listOf(1, 0, 1),
@@ -222,13 +232,13 @@ val dungeonLayouts = mapOf(
     ),
 )
 
-val corridorLayouts = mapOf(
+private val corridorLayouts = mapOf(
     "Labyrinth" to 0,
     "Bent" to 50,
     "Straight" to 100,
 )
 
-val stairEnd = mapOf(
+private val stairEnd = mapOf(
     Direction.NORTH to TunnelCheck(
         walled = listOf(
             Delta(1, -1), Delta(0, -1), Delta(-1, -1), Delta(-1, 0),
@@ -267,7 +277,7 @@ val stairEnd = mapOf(
     ),
 )
 
-val closeEnd = mapOf(
+private val closeEnd = mapOf(
     Direction.NORTH to TunnelCheck(
         walled = listOf(Delta(0, -1), Delta(1, -1), Delta(1, 0), Delta(1, 1), Delta(0, 1)),
         close = listOf(Delta(0, 0)),
@@ -290,7 +300,7 @@ val closeEnd = mapOf(
     ),
 )
 
-val colorChain = mapOf(
+private val colorChain = mapOf(
     "door" to "fill",
     "label" to "fill",
     "stair" to "wall",
@@ -298,23 +308,25 @@ val colorChain = mapOf(
     "fill" to "black",
 )
 
-fun getOpts(): Options = Options()
-
-fun createDungeon(opts: Options): Dungeon {
-    var dungeon = Dungeon(opts)
-    dungeon = initCells(dungeon)
-    dungeon = emplaceRooms(dungeon)
-    dungeon = openRooms(dungeon)
-    dungeon = labelRooms(dungeon)
-    dungeon = corridors(dungeon)
-    if (dungeon.addStairs > 0) {
-        dungeon = emplaceStairs(dungeon)
-    }
-    dungeon = cleanDungeon(dungeon)
-    return dungeon
+class DungeonGenerator(private val options: DungeonOptions = DungeonOptions()) {
+    fun generate(): Dungeon = createDungeon(options)
 }
 
-fun initCells(dungeon: Dungeon): Dungeon {
+class DungeonRenderer {
+    fun render(dungeon: Dungeon): String = imageDungeon(dungeon)
+}
+
+private fun createDungeon(opts: DungeonOptions): Dungeon =
+    Dungeon(opts)
+        .let(::initCells)
+        .let(::emplaceRooms)
+        .let(::openRooms)
+        .let(::labelRooms)
+        .let(::corridors)
+        .let { dungeon -> if (dungeon.addStairs > 0) emplaceStairs(dungeon) else dungeon }
+        .let(::cleanDungeon)
+
+private fun initCells(dungeon: Dungeon): Dungeon {
     for (r in 0..dungeon.nRows) {
         for (c in 0..dungeon.nCols) {
             dungeon.cell[r][c] = NOTHING
@@ -330,7 +342,7 @@ fun initCells(dungeon: Dungeon): Dungeon {
     return dungeon
 }
 
-fun maskCells(dungeon: Dungeon, mask: List<List<Int>>): Dungeon {
+private fun maskCells(dungeon: Dungeon, mask: List<List<Int>>): Dungeon {
     val rScale = mask.size.toDouble() / (dungeon.nRows + 1)
     val cScale = mask.first().size.toDouble() / (dungeon.nCols + 1)
     for (r in 0..dungeon.nRows) {
@@ -345,7 +357,7 @@ fun maskCells(dungeon: Dungeon, mask: List<List<Int>>): Dungeon {
     return dungeon
 }
 
-fun roundMask(dungeon: Dungeon): Dungeon {
+private fun roundMask(dungeon: Dungeon): Dungeon {
     val centerR = dungeon.nRows / 2
     val centerC = dungeon.nCols / 2
     for (r in 0..dungeon.nRows) {
@@ -359,15 +371,15 @@ fun roundMask(dungeon: Dungeon): Dungeon {
     return dungeon
 }
 
-fun emplaceRooms(dungeon: Dungeon): Dungeon =
+private fun emplaceRooms(dungeon: Dungeon): Dungeon =
     if (dungeon.roomLayout == "Packed") packRooms(dungeon) else scatterRooms(dungeon)
 
-fun packRooms(dungeon: Dungeon): Dungeon {
+private fun packRooms(dungeon: Dungeon): Dungeon {
     for (i in 0 until dungeon.nI) {
         val r = (i * 2) + 1
         for (j in 0 until dungeon.nJ) {
             val c = (j * 2) + 1
-            if ((dungeon.cell[r][c] and ROOM) != 0) {
+            if (dungeon.cell[r][c] has ROOM) {
                 continue
             }
             if ((i == 0 || j == 0) && dungeon.nextInt(2) != 0) {
@@ -379,20 +391,20 @@ fun packRooms(dungeon: Dungeon): Dungeon {
     return dungeon
 }
 
-fun scatterRooms(dungeon: Dungeon): Dungeon {
+private fun scatterRooms(dungeon: Dungeon): Dungeon {
     repeat(allocRooms(dungeon)) {
         emplaceRoom(dungeon, null)
     }
     return dungeon
 }
 
-fun allocRooms(dungeon: Dungeon): Int {
+private fun allocRooms(dungeon: Dungeon): Int {
     val dungeonArea = dungeon.nCols * dungeon.nRows
     val roomArea = dungeon.roomMax * dungeon.roomMax
     return dungeonArea / roomArea
 }
 
-fun emplaceRoom(dungeon: Dungeon, initialProto: RoomProto?): Dungeon {
+private fun emplaceRoom(dungeon: Dungeon, initialProto: RoomProto?): Dungeon {
     if (dungeon.nRooms == 999) {
         return dungeon
     }
@@ -418,12 +430,12 @@ fun emplaceRoom(dungeon: Dungeon, initialProto: RoomProto?): Dungeon {
 
     for (r in r1..r2) {
         for (c in c1..c2) {
-            if ((dungeon.cell[r][c] and ENTRANCE) != 0) {
-                dungeon.cell[r][c] = dungeon.cell[r][c] and ESPACE.inv()
-            } else if ((dungeon.cell[r][c] and PERIMETER) != 0) {
-                dungeon.cell[r][c] = dungeon.cell[r][c] and PERIMETER.inv()
+            if (dungeon.cell[r][c] has ENTRANCE) {
+                dungeon.cell[r][c] = dungeon.cell[r][c] withoutFlag ESPACE
+            } else if (dungeon.cell[r][c] has PERIMETER) {
+                dungeon.cell[r][c] = dungeon.cell[r][c] withoutFlag PERIMETER
             }
-            dungeon.cell[r][c] = dungeon.cell[r][c] or ROOM or (roomId shl 6)
+            dungeon.cell[r][c] = dungeon.cell[r][c] withFlag ROOM withFlag (roomId shl 6)
         }
     }
 
@@ -466,7 +478,7 @@ fun emplaceRoom(dungeon: Dungeon, initialProto: RoomProto?): Dungeon {
     return dungeon
 }
 
-fun setRoom(dungeon: Dungeon, proto: RoomProto): RoomProto {
+private fun setRoom(dungeon: Dungeon, proto: RoomProto): RoomProto {
     if (proto.height == null) {
         proto.height = if (proto.i != null) {
             val available = max(0, dungeon.nI - dungeon.roomBase - proto.i!!)
@@ -496,16 +508,16 @@ fun setRoom(dungeon: Dungeon, proto: RoomProto): RoomProto {
     return proto
 }
 
-fun soundRoom(dungeon: Dungeon, r1: Int, c1: Int, r2: Int, c2: Int): SoundRoomResult {
+private fun soundRoom(dungeon: Dungeon, r1: Int, c1: Int, r2: Int, c2: Int): SoundRoomResult {
     val hits = mutableMapOf<Int, Int>()
     for (r in r1..r2) {
         for (c in c1..c2) {
             val cell = dungeon.cell[r][c]
-            if ((cell and BLOCKED) != 0) {
+            if (cell has BLOCKED) {
                 return SoundRoomResult(blocked = true)
             }
-            if ((cell and ROOM) != 0) {
-                val id = (cell and ROOM_ID) ushr 6
+            if (cell has ROOM) {
+                val id = cell.roomIdValue
                 hits[id] = (hits[id] ?: 0) + 1
             }
         }
@@ -513,7 +525,7 @@ fun soundRoom(dungeon: Dungeon, r1: Int, c1: Int, r2: Int, c2: Int): SoundRoomRe
     return SoundRoomResult(hits = hits)
 }
 
-fun openRooms(dungeon: Dungeon): Dungeon {
+private fun openRooms(dungeon: Dungeon): Dungeon {
     for (id in 1..dungeon.nRooms) {
         val room = dungeon.rooms.getOrNull(id) ?: continue
         openRoom(dungeon, room)
@@ -522,7 +534,7 @@ fun openRooms(dungeon: Dungeon): Dungeon {
     return dungeon
 }
 
-fun openRoom(dungeon: Dungeon, room: Room): Dungeon {
+private fun openRoom(dungeon: Dungeon, room: Room): Dungeon {
     val sills = doorSills(dungeon, room).toMutableList()
     if (sills.isEmpty()) {
         return dungeon
@@ -533,7 +545,7 @@ fun openRoom(dungeon: Dungeon, room: Room): Dungeon {
     while (opened < nOpens && sills.isNotEmpty()) {
         val sill = sills.removeAt(dungeon.nextInt(sills.size))
         val doorCell = dungeon.cell[sill.doorR][sill.doorC]
-        if ((doorCell and DOORSPACE) != 0) {
+        if (doorCell has DOORSPACE) {
             continue
         }
 
@@ -548,40 +560,39 @@ fun openRoom(dungeon: Dungeon, room: Room): Dungeon {
         for (x in 0..2) {
             val r = sill.sillR + (sill.dir.di * x)
             val c = sill.sillC + (sill.dir.dj * x)
-            dungeon.cell[r][c] = dungeon.cell[r][c] and PERIMETER.inv()
-            dungeon.cell[r][c] = dungeon.cell[r][c] or ENTRANCE
+            dungeon.cell[r][c] = dungeon.cell[r][c] withoutFlag PERIMETER withFlag ENTRANCE
         }
 
         val doorType = doorType(dungeon)
         val door = Door(row = sill.doorR, col = sill.doorC, key = "", type = "", outId = outId)
         when (doorType) {
             ARCH -> {
-                dungeon.cell[sill.doorR][sill.doorC] = dungeon.cell[sill.doorR][sill.doorC] or ARCH
+                dungeon.cell[sill.doorR][sill.doorC] = dungeon.cell[sill.doorR][sill.doorC] withFlag ARCH
                 door.key = "arch"
                 door.type = "Archway"
             }
             DOOR -> {
-                dungeon.cell[sill.doorR][sill.doorC] = dungeon.cell[sill.doorR][sill.doorC] or DOOR or ('o'.code shl 24)
+                dungeon.cell[sill.doorR][sill.doorC] = dungeon.cell[sill.doorR][sill.doorC] withFlag DOOR withFlag glyph('o')
                 door.key = "open"
                 door.type = "Unlocked Door"
             }
             LOCKED -> {
-                dungeon.cell[sill.doorR][sill.doorC] = dungeon.cell[sill.doorR][sill.doorC] or LOCKED or ('x'.code shl 24)
+                dungeon.cell[sill.doorR][sill.doorC] = dungeon.cell[sill.doorR][sill.doorC] withFlag LOCKED withFlag glyph('x')
                 door.key = "lock"
                 door.type = "Locked Door"
             }
             TRAPPED -> {
-                dungeon.cell[sill.doorR][sill.doorC] = dungeon.cell[sill.doorR][sill.doorC] or TRAPPED or ('t'.code shl 24)
+                dungeon.cell[sill.doorR][sill.doorC] = dungeon.cell[sill.doorR][sill.doorC] withFlag TRAPPED withFlag glyph('t')
                 door.key = "trap"
                 door.type = "Trapped Door"
             }
             SECRET -> {
-                dungeon.cell[sill.doorR][sill.doorC] = dungeon.cell[sill.doorR][sill.doorC] or SECRET or ('s'.code shl 24)
+                dungeon.cell[sill.doorR][sill.doorC] = dungeon.cell[sill.doorR][sill.doorC] withFlag SECRET withFlag glyph('s')
                 door.key = "secret"
                 door.type = "Secret Door"
             }
             else -> {
-                dungeon.cell[sill.doorR][sill.doorC] = dungeon.cell[sill.doorR][sill.doorC] or PORTC or ('#'.code shl 24)
+                dungeon.cell[sill.doorR][sill.doorC] = dungeon.cell[sill.doorR][sill.doorC] withFlag PORTC withFlag glyph('#')
                 door.key = "portc"
                 door.type = "Portcullis"
             }
@@ -592,56 +603,55 @@ fun openRoom(dungeon: Dungeon, room: Room): Dungeon {
     return dungeon
 }
 
-fun allocOpens(room: Room, dungeon: Dungeon): Int {
+private fun allocOpens(room: Room, dungeon: Dungeon): Int {
     val roomH = ((room.south - room.north) / 2) + 1
     val roomW = ((room.east - room.west) / 2) + 1
     val flumph = sqrt((roomW * roomH).toDouble()).toInt()
     return flumph + dungeon.nextInt(flumph)
 }
 
-fun doorSills(dungeon: Dungeon, room: Room): List<DoorSill> {
-    val list = mutableListOf<DoorSill>()
-    if (room.north >= 3) {
-        for (c in room.west..room.east step 2) {
-            checkSill(dungeon, room, room.north, c, Direction.NORTH)?.let(list::add)
+private fun doorSills(dungeon: Dungeon, room: Room): List<DoorSill> =
+    buildList {
+        if (room.north >= 3) {
+            for (c in room.west..room.east step 2) {
+                checkSill(dungeon, room, room.north, c, Direction.NORTH)?.let(::add)
+            }
         }
-    }
-    if (room.south <= dungeon.nRows - 3) {
-        for (c in room.west..room.east step 2) {
-            checkSill(dungeon, room, room.south, c, Direction.SOUTH)?.let(list::add)
+        if (room.south <= dungeon.nRows - 3) {
+            for (c in room.west..room.east step 2) {
+                checkSill(dungeon, room, room.south, c, Direction.SOUTH)?.let(::add)
+            }
         }
-    }
-    if (room.west >= 3) {
-        for (r in room.north..room.south step 2) {
-            checkSill(dungeon, room, r, room.west, Direction.WEST)?.let(list::add)
+        if (room.west >= 3) {
+            for (r in room.north..room.south step 2) {
+                checkSill(dungeon, room, r, room.west, Direction.WEST)?.let(::add)
+            }
         }
-    }
-    if (room.east <= dungeon.nCols - 3) {
-        for (r in room.north..room.south step 2) {
-            checkSill(dungeon, room, r, room.east, Direction.EAST)?.let(list::add)
+        if (room.east <= dungeon.nCols - 3) {
+            for (r in room.north..room.south step 2) {
+                checkSill(dungeon, room, r, room.east, Direction.EAST)?.let(::add)
+            }
         }
-    }
-    return shuffleList(list, dungeon)
-}
+    }.let { shuffleList(it, dungeon) }
 
-fun checkSill(dungeon: Dungeon, room: Room, sillR: Int, sillC: Int, dir: Direction): DoorSill? {
+private fun checkSill(dungeon: Dungeon, room: Room, sillR: Int, sillC: Int, dir: Direction): DoorSill? {
     val doorR = sillR + dir.di
     val doorC = sillC + dir.dj
     val doorCell = dungeon.cell[doorR][doorC]
-    if ((doorCell and PERIMETER) == 0 || (doorCell and BLOCK_DOOR) != 0) {
+    if (doorCell !has PERIMETER || doorCell has BLOCK_DOOR) {
         return null
     }
 
     val outR = doorR + dir.di
     val outC = doorC + dir.dj
     val outCell = dungeon.cell[outR][outC]
-    if ((outCell and BLOCKED) != 0) {
+    if (outCell has BLOCKED) {
         return null
     }
 
     var outId: Int? = null
-    if ((outCell and ROOM) != 0) {
-        outId = (outCell and ROOM_ID) ushr 6
+    if (outCell has ROOM) {
+        outId = outCell.roomIdValue
         if (outId == room.id) {
             return null
         }
@@ -657,7 +667,7 @@ fun checkSill(dungeon: Dungeon, room: Room, sillR: Int, sillC: Int, dir: Directi
     )
 }
 
-fun <T> shuffleList(list: List<T>, dungeon: Dungeon): List<T> {
+private fun <T> shuffleList(list: List<T>, dungeon: Dungeon): List<T> {
     val copy = list.toMutableList()
     for (i in copy.indices.reversed()) {
         val j = dungeon.nextInt(i + 1)
@@ -668,7 +678,7 @@ fun <T> shuffleList(list: List<T>, dungeon: Dungeon): List<T> {
     return copy
 }
 
-fun doorType(dungeon: Dungeon): Int {
+private fun doorType(dungeon: Dungeon): Int {
     return when (val i = dungeon.nextInt(110)) {
         in 0 until 15 -> ARCH
         in 15 until 60 -> DOOR
@@ -679,7 +689,7 @@ fun doorType(dungeon: Dungeon): Int {
     }
 }
 
-fun labelRooms(dungeon: Dungeon): Dungeon {
+private fun labelRooms(dungeon: Dungeon): Dungeon {
     for (id in 1..dungeon.nRooms) {
         val room = dungeon.rooms.getOrNull(id) ?: continue
         val label = room.id.toString()
@@ -687,13 +697,13 @@ fun labelRooms(dungeon: Dungeon): Dungeon {
         val labelR = (room.north + room.south) / 2
         val labelC = ((room.west + room.east - len) / 2) + 1
         for ((offset, ch) in label.withIndex()) {
-            dungeon.cell[labelR][labelC + offset] = dungeon.cell[labelR][labelC + offset] or (ch.code shl 24)
+            dungeon.cell[labelR][labelC + offset] = dungeon.cell[labelR][labelC + offset] withFlag glyph(ch)
         }
     }
     return dungeon
 }
 
-fun corridors(dungeon: Dungeon): Dungeon {
+private fun corridors(dungeon: Dungeon): Dungeon {
     for (i in 1 until dungeon.nI) {
         val r = (i * 2) + 1
         for (j in 1 until dungeon.nJ) {
@@ -707,7 +717,7 @@ fun corridors(dungeon: Dungeon): Dungeon {
     return dungeon
 }
 
-fun tunnel(dungeon: Dungeon, i: Int, j: Int, lastDir: Direction?): Dungeon {
+private fun tunnel(dungeon: Dungeon, i: Int, j: Int, lastDir: Direction?): Dungeon {
     for (dir in tunnelDirs(dungeon, lastDir)) {
         if (openTunnel(dungeon, i, j, dir)) {
             tunnel(dungeon, i + dir.di, j + dir.dj, dir)
@@ -716,16 +726,16 @@ fun tunnel(dungeon: Dungeon, i: Int, j: Int, lastDir: Direction?): Dungeon {
     return dungeon
 }
 
-fun tunnelDirs(dungeon: Dungeon, lastDir: Direction?): List<Direction> {
+private fun tunnelDirs(dungeon: Dungeon, lastDir: Direction?): List<Direction> {
     val probability = corridorLayouts[dungeon.corridorLayout] ?: 0
-    val dirs = shuffleList(Direction.values().toList(), dungeon).toMutableList()
+    val dirs = shuffleList(Direction.entries.toList(), dungeon).toMutableList()
     if (lastDir != null && probability > 0 && dungeon.nextInt(100) < probability) {
         dirs.add(0, lastDir)
     }
     return dirs
 }
 
-fun openTunnel(dungeon: Dungeon, i: Int, j: Int, dir: Direction): Boolean {
+private fun openTunnel(dungeon: Dungeon, i: Int, j: Int, dir: Direction): Boolean {
     val thisR = (i * 2) + 1
     val thisC = (j * 2) + 1
     val nextR = ((i + dir.di) * 2) + 1
@@ -739,7 +749,7 @@ fun openTunnel(dungeon: Dungeon, i: Int, j: Int, dir: Direction): Boolean {
     }
 }
 
-fun soundTunnel(dungeon: Dungeon, midR: Int, midC: Int, nextR: Int, nextC: Int): Boolean {
+private fun soundTunnel(dungeon: Dungeon, midR: Int, midC: Int, nextR: Int, nextC: Int): Boolean {
     if (nextR < 0 || nextR > dungeon.nRows || nextC < 0 || nextC > dungeon.nCols) {
         return false
     }
@@ -757,21 +767,20 @@ fun soundTunnel(dungeon: Dungeon, midR: Int, midC: Int, nextR: Int, nextC: Int):
     return true
 }
 
-fun delveTunnel(dungeon: Dungeon, thisR: Int, thisC: Int, nextR: Int, nextC: Int): Boolean {
+private fun delveTunnel(dungeon: Dungeon, thisR: Int, thisC: Int, nextR: Int, nextC: Int): Boolean {
     val r1 = min(thisR, nextR)
     val r2 = max(thisR, nextR)
     val c1 = min(thisC, nextC)
     val c2 = max(thisC, nextC)
     for (r in r1..r2) {
         for (c in c1..c2) {
-            dungeon.cell[r][c] = dungeon.cell[r][c] and ENTRANCE.inv()
-            dungeon.cell[r][c] = dungeon.cell[r][c] or CORRIDOR
+            dungeon.cell[r][c] = dungeon.cell[r][c] withoutFlag ENTRANCE withFlag CORRIDOR
         }
     }
     return true
 }
 
-fun emplaceStairs(dungeon: Dungeon): Dungeon {
+private fun emplaceStairs(dungeon: Dungeon): Dungeon {
     val list = stairEnds(dungeon).toMutableList()
     if (dungeon.addStairs <= 0 || list.isEmpty()) {
         return dungeon
@@ -783,10 +792,10 @@ fun emplaceStairs(dungeon: Dungeon): Dungeon {
         val stair = list.removeAt(dungeon.nextInt(list.size))
         val type = if (i < 2) i else dungeon.nextInt(2)
         if (type == 0) {
-            dungeon.cell[stair.row][stair.col] = dungeon.cell[stair.row][stair.col] or STAIR_DN or ('d'.code shl 24)
+            dungeon.cell[stair.row][stair.col] = dungeon.cell[stair.row][stair.col] withFlag STAIR_DN withFlag glyph('d')
             stair.key = "down"
         } else {
-            dungeon.cell[stair.row][stair.col] = dungeon.cell[stair.row][stair.col] or STAIR_UP or ('u'.code shl 24)
+            dungeon.cell[stair.row][stair.col] = dungeon.cell[stair.row][stair.col] withFlag STAIR_UP withFlag glyph('u')
             stair.key = "up"
         }
         dungeon.stairs.add(stair)
@@ -794,37 +803,36 @@ fun emplaceStairs(dungeon: Dungeon): Dungeon {
     return dungeon
 }
 
-fun stairEnds(dungeon: Dungeon): List<Stair> {
-    val list = mutableListOf<Stair>()
-    for (i in 0 until dungeon.nI) {
-        val r = (i * 2) + 1
-        for (j in 0 until dungeon.nJ) {
-            val c = (j * 2) + 1
-            if (dungeon.cell[r][c] != CORRIDOR || (dungeon.cell[r][c] and STAIRS) != 0) {
-                continue
-            }
+private fun stairEnds(dungeon: Dungeon): List<Stair> =
+    buildList {
+        for (i in 0 until dungeon.nI) {
+            val r = (i * 2) + 1
+            for (j in 0 until dungeon.nJ) {
+                val c = (j * 2) + 1
+                if (dungeon.cell[r][c] != CORRIDOR || (dungeon.cell[r][c] and STAIRS) != 0) {
+                    continue
+                }
 
-            for (dir in Direction.values()) {
-                val spec = stairEnd[dir] ?: continue
-                if (checkTunnel(dungeon, r, c, spec)) {
-                    val next = spec.next!!
-                    list.add(
-                        Stair(
-                            row = r,
-                            col = c,
-                            nextRow = r + next.dr,
-                            nextCol = c + next.dc,
+                for (dir in Direction.entries) {
+                    val spec = stairEnd[dir] ?: continue
+                    if (checkTunnel(dungeon, r, c, spec)) {
+                        val next = spec.next!!
+                        add(
+                            Stair(
+                                row = r,
+                                col = c,
+                                nextRow = r + next.dr,
+                                nextCol = c + next.dc,
+                            )
                         )
-                    )
-                    break
+                        break
+                    }
                 }
             }
         }
     }
-    return list
-}
 
-fun cleanDungeon(dungeon: Dungeon): Dungeon {
+private fun cleanDungeon(dungeon: Dungeon): Dungeon {
     if (dungeon.removeDeadends > 0) {
         removeDeadends(dungeon)
     }
@@ -833,9 +841,9 @@ fun cleanDungeon(dungeon: Dungeon): Dungeon {
     return dungeon
 }
 
-fun removeDeadends(dungeon: Dungeon): Dungeon = collapseTunnels(dungeon, dungeon.removeDeadends, closeEnd)
+private fun removeDeadends(dungeon: Dungeon): Dungeon = collapseTunnels(dungeon, dungeon.removeDeadends, closeEnd)
 
-fun collapseTunnels(dungeon: Dungeon, percent: Int, checks: Map<Direction, TunnelCheck>): Dungeon {
+private fun collapseTunnels(dungeon: Dungeon, percent: Int, checks: Map<Direction, TunnelCheck>): Dungeon {
     if (percent <= 0) {
         return dungeon
     }
@@ -845,7 +853,7 @@ fun collapseTunnels(dungeon: Dungeon, percent: Int, checks: Map<Direction, Tunne
         for (j in 0 until dungeon.nJ) {
             val c = (j * 2) + 1
             val cell = dungeon.cell[r][c]
-            if ((cell and OPENSPACE) == 0 || (cell and STAIRS) != 0) {
+            if (cell !has OPENSPACE || cell has STAIRS) {
                 continue
             }
             if (!collapseAll && dungeon.nextInt(100) >= percent) {
@@ -857,11 +865,11 @@ fun collapseTunnels(dungeon: Dungeon, percent: Int, checks: Map<Direction, Tunne
     return dungeon
 }
 
-fun collapse(dungeon: Dungeon, r: Int, c: Int, checks: Map<Direction, TunnelCheck>): Dungeon {
-    if ((dungeon.cell[r][c] and OPENSPACE) == 0) {
+private fun collapse(dungeon: Dungeon, r: Int, c: Int, checks: Map<Direction, TunnelCheck>): Dungeon {
+    if (dungeon.cell[r][c] !has OPENSPACE) {
         return dungeon
     }
-    for (dir in Direction.values()) {
+    for (dir in Direction.entries) {
         val spec = checks[dir] ?: continue
         if (!checkTunnel(dungeon, r, c, spec)) {
             continue
@@ -870,7 +878,7 @@ fun collapse(dungeon: Dungeon, r: Int, c: Int, checks: Map<Direction, TunnelChec
             dungeon.cell[r + delta.dr][c + delta.dc] = NOTHING
         }
         spec.open?.let { delta ->
-            dungeon.cell[r + delta.dr][c + delta.dc] = dungeon.cell[r + delta.dr][c + delta.dc] or CORRIDOR
+            dungeon.cell[r + delta.dr][c + delta.dc] = dungeon.cell[r + delta.dr][c + delta.dc] withFlag CORRIDOR
         }
         spec.recurse?.let { delta ->
             collapse(dungeon, r + delta.dr, c + delta.dc, checks)
@@ -879,21 +887,21 @@ fun collapse(dungeon: Dungeon, r: Int, c: Int, checks: Map<Direction, TunnelChec
     return dungeon
 }
 
-fun checkTunnel(dungeon: Dungeon, r: Int, c: Int, check: TunnelCheck): Boolean {
+private fun checkTunnel(dungeon: Dungeon, r: Int, c: Int, check: TunnelCheck): Boolean {
     for (delta in check.corridor) {
         if (cellAt(dungeon, r + delta.dr, c + delta.dc) != CORRIDOR) {
             return false
         }
     }
     for (delta in check.walled) {
-        if ((cellAt(dungeon, r + delta.dr, c + delta.dc) and OPENSPACE) != 0) {
+        if (cellAt(dungeon, r + delta.dr, c + delta.dc) has OPENSPACE) {
             return false
         }
     }
     return true
 }
 
-fun fixDoors(dungeon: Dungeon): Dungeon {
+private fun fixDoors(dungeon: Dungeon): Dungeon {
     val fixed = mutableSetOf<Pair<Int, Int>>()
     for (room in dungeon.rooms.filterNotNull()) {
         val directions = room.doors.keys.toList().sortedBy { it.ordinal }
@@ -902,7 +910,7 @@ fun fixDoors(dungeon: Dungeon): Dungeon {
             val doors = room.doors[dir].orEmpty()
             for (door in doors) {
                 val doorCell = dungeon.cell[door.row][door.col]
-                if ((doorCell and OPENSPACE) == 0) {
+                if (doorCell !has OPENSPACE) {
                     continue
                 }
 
@@ -929,10 +937,10 @@ fun fixDoors(dungeon: Dungeon): Dungeon {
     return dungeon
 }
 
-fun emptyBlocks(dungeon: Dungeon): Dungeon {
+private fun emptyBlocks(dungeon: Dungeon): Dungeon {
     for (r in 0..dungeon.nRows) {
         for (c in 0..dungeon.nCols) {
-            if ((dungeon.cell[r][c] and BLOCKED) != 0) {
+            if (dungeon.cell[r][c] has BLOCKED) {
                 dungeon.cell[r][c] = NOTHING
             }
         }
@@ -940,7 +948,7 @@ fun emptyBlocks(dungeon: Dungeon): Dungeon {
     return dungeon
 }
 
-fun scaleDungeon(dungeon: Dungeon): ImageInfo {
+private fun scaleDungeon(dungeon: Dungeon): ImageInfo {
     val cellSize = dungeon.cellSize
     val width = ((dungeon.nCols + 1) * cellSize) + 1
     val height = ((dungeon.nRows + 1) * cellSize) + 1
@@ -975,7 +983,7 @@ fun scaleDungeon(dungeon: Dungeon): ImageInfo {
     )
 }
 
-fun getPalette(image: ImageInfo): Palette {
+private fun getPalette(image: ImageInfo): Palette {
     return when (image.mapStyle) {
         "Standard" -> Palette(
             fill = Color(0x00, 0x00, 0x00),
@@ -998,29 +1006,24 @@ fun getPalette(image: ImageInfo): Palette {
     }
 }
 
-fun getColor(palette: Palette, key: String): Color? {
-    var current: String? = key
-    while (current != null) {
-        val color = when (current) {
-            "door" -> palette.door
-            "label" -> palette.label
-            "stair" -> palette.stair
-            "wall" -> palette.wall
-            "fill" -> palette.fill
-            "black" -> palette.black
-            "white" -> palette.white
-            "open" -> palette.open
-            else -> null
+private fun getColor(palette: Palette, key: String): Color? =
+    generateSequence(key) { colorChain[it] }
+        .mapNotNull { current ->
+            when (current) {
+                "door" -> palette.door
+                "label" -> palette.label
+                "stair" -> palette.stair
+                "wall" -> palette.wall
+                "fill" -> palette.fill
+                "black" -> palette.black
+                "white" -> palette.white
+                "open" -> palette.open
+                else -> null
+            }
         }
-        if (color != null) {
-            return color
-        }
-        current = colorChain[current]
-    }
-    return null
-}
+        .firstOrNull()
 
-fun withGraphics(image: BufferedImage, block: (Graphics2D) -> Unit) {
+private fun withGraphics(image: BufferedImage, block: (Graphics2D) -> Unit) {
     val graphics = image.createGraphics()
     try {
         graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF)
@@ -1030,13 +1033,13 @@ fun withGraphics(image: BufferedImage, block: (Graphics2D) -> Unit) {
     }
 }
 
-fun deepCopy(image: BufferedImage): BufferedImage {
+private fun deepCopy(image: BufferedImage): BufferedImage {
     val copy = BufferedImage(image.width, image.height, image.type)
     withGraphics(copy) { g -> g.drawImage(image, 0, 0, null) }
     return copy
 }
 
-fun baseLayer(dungeon: Dungeon, image: ImageInfo, palette: Palette): BufferedImage {
+private fun baseLayer(dungeon: Dungeon, image: ImageInfo, palette: Palette): BufferedImage {
     val layer = BufferedImage(image.width, image.height, BufferedImage.TYPE_INT_RGB)
     withGraphics(layer) { g ->
         g.color = palette.open
@@ -1046,7 +1049,7 @@ fun baseLayer(dungeon: Dungeon, image: ImageInfo, palette: Palette): BufferedIma
     return layer
 }
 
-fun fillImage(dungeon: Dungeon, image: ImageInfo, palette: Palette): BufferedImage {
+private fun fillImage(dungeon: Dungeon, image: ImageInfo, palette: Palette): BufferedImage {
     val canvas = BufferedImage(image.width, image.height, BufferedImage.TYPE_INT_RGB)
     withGraphics(canvas) { g ->
         g.color = palette.fill
@@ -1055,7 +1058,7 @@ fun fillImage(dungeon: Dungeon, image: ImageInfo, palette: Palette): BufferedIma
     return canvas
 }
 
-fun imageGrid(dungeon: Dungeon, image: ImageInfo, color: Color, graphics: Graphics2D) {
+private fun imageGrid(dungeon: Dungeon, image: ImageInfo, color: Color, graphics: Graphics2D) {
     when (dungeon.grid) {
         "None" -> Unit
         "Hex" -> hexGrid(image, color, graphics)
@@ -1063,7 +1066,7 @@ fun imageGrid(dungeon: Dungeon, image: ImageInfo, color: Color, graphics: Graphi
     }
 }
 
-fun squareGrid(image: ImageInfo, color: Color, graphics: Graphics2D) {
+private fun squareGrid(image: ImageInfo, color: Color, graphics: Graphics2D) {
     graphics.color = color
     val dim = image.cellSize
     var x = 0
@@ -1078,7 +1081,7 @@ fun squareGrid(image: ImageInfo, color: Color, graphics: Graphics2D) {
     }
 }
 
-fun hexGrid(image: ImageInfo, color: Color, graphics: Graphics2D) {
+private fun hexGrid(image: ImageInfo, color: Color, graphics: Graphics2D) {
     val dim = image.cellSize.toDouble()
     val dy = dim / 2.0
     val dx = dim / 3.4641016151
@@ -1107,14 +1110,14 @@ fun hexGrid(image: ImageInfo, color: Color, graphics: Graphics2D) {
     graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, previousHint)
 }
 
-fun openCells(dungeon: Dungeon, image: ImageInfo, baseLayer: BufferedImage, canvas: BufferedImage) {
+private fun openCells(dungeon: Dungeon, image: ImageInfo, baseLayer: BufferedImage, canvas: BufferedImage) {
     withGraphics(canvas) { g ->
         val dim = image.cellSize
         for (r in 0..dungeon.nRows) {
             val y1 = r * dim
             val y2 = y1 + dim + 1
             for (c in 0..dungeon.nCols) {
-                if ((dungeon.cell[r][c] and OPENSPACE) == 0) {
+                if (dungeon.cell[r][c] !has OPENSPACE) {
                     continue
                 }
                 val x1 = c * dim
@@ -1125,7 +1128,7 @@ fun openCells(dungeon: Dungeon, image: ImageInfo, baseLayer: BufferedImage, canv
     }
 }
 
-fun imageWalls(dungeon: Dungeon, image: ImageInfo, palette: Palette, canvas: BufferedImage) {
+private fun imageWalls(dungeon: Dungeon, image: ImageInfo, palette: Palette, canvas: BufferedImage) {
     val wallColor = palette.wall
     withGraphics(canvas) { g ->
         g.color = wallColor
@@ -1134,25 +1137,25 @@ fun imageWalls(dungeon: Dungeon, image: ImageInfo, palette: Palette, canvas: Buf
             val y1 = r * dim
             val y2 = y1 + dim
             for (c in 0..dungeon.nCols) {
-                if ((dungeon.cell[r][c] and OPENSPACE) == 0) {
+                if (dungeon.cell[r][c] !has OPENSPACE) {
                     continue
                 }
                 val x1 = c * dim
                 val x2 = x1 + dim
 
-                if ((cellAt(dungeon, r - 1, c - 1) and OPENSPACE) == 0) {
+                if (cellAt(dungeon, r - 1, c - 1) !has OPENSPACE) {
                     canvas.setRGB(x1, y1, wallColor.rgb)
                 }
-                if ((cellAt(dungeon, r - 1, c) and OPENSPACE) == 0) {
+                if (cellAt(dungeon, r - 1, c) !has OPENSPACE) {
                     g.drawLine(x1, y1, x2, y1)
                 }
-                if ((cellAt(dungeon, r, c - 1) and OPENSPACE) == 0) {
+                if (cellAt(dungeon, r, c - 1) !has OPENSPACE) {
                     g.drawLine(x1, y1, x1, y2)
                 }
-                if ((cellAt(dungeon, r, c + 1) and OPENSPACE) == 0) {
+                if (cellAt(dungeon, r, c + 1) !has OPENSPACE) {
                     g.drawLine(x2, y1, x2, y2)
                 }
-                if ((cellAt(dungeon, r + 1, c) and OPENSPACE) == 0) {
+                if (cellAt(dungeon, r + 1, c) !has OPENSPACE) {
                     g.drawLine(x1, y2, x2, y2)
                 }
             }
@@ -1160,7 +1163,7 @@ fun imageWalls(dungeon: Dungeon, image: ImageInfo, palette: Palette, canvas: Buf
     }
 }
 
-fun imageDoors(dungeon: Dungeon, image: ImageInfo, palette: Palette, canvas: BufferedImage) {
+private fun imageDoors(dungeon: Dungeon, image: ImageInfo, palette: Palette, canvas: BufferedImage) {
     if (dungeon.allDoors.isEmpty()) {
         return
     }
@@ -1182,7 +1185,7 @@ fun imageDoors(dungeon: Dungeon, image: ImageInfo, palette: Palette, canvas: Buf
             val x1 = c * dim
             val x2 = x1 + dim
 
-            val vertical = (cellAt(dungeon, r, c - 1) and OPENSPACE) != 0
+            val vertical = cellAt(dungeon, r, c - 1) has OPENSPACE
             val xc = if (vertical) (x1 + x2) / 2 else null
             val yc = if (!vertical) (y1 + y2) / 2 else null
             val attr = doorAttr(door)
@@ -1275,7 +1278,7 @@ fun imageDoors(dungeon: Dungeon, image: ImageInfo, palette: Palette, canvas: Buf
     }
 }
 
-fun doorAttr(door: Door): Map<String, Boolean> {
+private fun doorAttr(door: Door): Map<String, Boolean> {
     val attr = mutableMapOf<String, Boolean>()
     when (door.key) {
         "arch" -> attr["arch"] = true
@@ -1309,7 +1312,7 @@ fun doorAttr(door: Door): Map<String, Boolean> {
     return attr
 }
 
-fun imageLabels(dungeon: Dungeon, image: ImageInfo, palette: Palette, canvas: BufferedImage) {
+private fun imageLabels(dungeon: Dungeon, image: ImageInfo, palette: Palette, canvas: BufferedImage) {
     val color = getColor(palette, "label") ?: palette.label
     withGraphics(canvas) { g ->
         g.color = color
@@ -1317,7 +1320,7 @@ fun imageLabels(dungeon: Dungeon, image: ImageInfo, palette: Palette, canvas: Bu
         val dim = image.cellSize
         for (r in 0..dungeon.nRows) {
             for (c in 0..dungeon.nCols) {
-                if ((dungeon.cell[r][c] and OPENSPACE) == 0) {
+                if (dungeon.cell[r][c] !has OPENSPACE) {
                     continue
                 }
                 val char = cellLabel(dungeon.cell[r][c]) ?: continue
@@ -1329,16 +1332,13 @@ fun imageLabels(dungeon: Dungeon, image: ImageInfo, palette: Palette, canvas: Bu
     }
 }
 
-fun cellLabel(cell: Int): Char? {
-    val code = (cell ushr 24) and 0xFF
-    if (code == 0) {
-        return null
-    }
-    val char = code.toChar()
-    return if (char.isDigit()) char else null
-}
+private fun cellLabel(cell: Int): Char? =
+    ((cell ushr 24) and 0xFF)
+        .takeIf { it != 0 }
+        ?.toChar()
+        ?.takeIf(Char::isDigit)
 
-fun imageStairs(dungeon: Dungeon, image: ImageInfo, palette: Palette, canvas: BufferedImage) {
+private fun imageStairs(dungeon: Dungeon, image: ImageInfo, palette: Palette, canvas: BufferedImage) {
     if (dungeon.stairs.isEmpty()) {
         return
     }
@@ -1401,14 +1401,14 @@ fun imageStairs(dungeon: Dungeon, image: ImageInfo, palette: Palette, canvas: Bu
     }
 }
 
-fun cellAt(dungeon: Dungeon, r: Int, c: Int): Int {
+private fun cellAt(dungeon: Dungeon, r: Int, c: Int): Int {
     if (r !in 0..dungeon.nRows || c !in 0..dungeon.nCols) {
         return NOTHING
     }
     return dungeon.cell[r][c]
 }
 
-fun imageDungeon(dungeon: Dungeon): String {
+private fun imageDungeon(dungeon: Dungeon): String {
     val image = scaleDungeon(dungeon)
     val palette = getPalette(image)
     val baseLayer = baseLayer(dungeon, image, palette)
@@ -1420,18 +1420,13 @@ fun imageDungeon(dungeon: Dungeon): String {
     imageLabels(dungeon, image, palette, canvas)
     imageStairs(dungeon, image, palette, canvas)
 
-    val gif = File("${dungeon.seed}.gif")
-    if (ImageIO.write(canvas, "gif", gif)) {
-        return gif.name
-    }
-
-    val png = File("${dungeon.seed}.png")
-    ImageIO.write(canvas, "png", png)
-    return png.name
+    return File("${dungeon.seed}.gif")
+        .takeIf { ImageIO.write(canvas, "gif", it) }
+        ?.name
+        ?: File("${dungeon.seed}.png").also { ImageIO.write(canvas, "png", it) }.name
 }
 
-fun main() {
-    val opts = getOpts()
-    val dungeon = createDungeon(opts)
-    println(imageDungeon(dungeon))
-}
+fun main() = DungeonGenerator()
+    .generate()
+    .let(DungeonRenderer()::render)
+    .also(::println)
