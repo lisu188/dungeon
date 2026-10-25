@@ -1,0 +1,35 @@
+name: Perl static analysis
+
+on:
+  pull_request:
+  push:
+    branches: ['codex/init-kotlin-gradle-structure']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  perl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install Perl analyzers and GD dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libperl-critic-perl libgd-perl
+      - name: Compile-check Perl
+        continue-on-error: true
+        run: perl -c dungeon.pl
+      - name: Critique Perl source
+        continue-on-error: true
+        run: perlcritic --severity 3 dungeon.pl | tee perlcritic-report.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perlcritic-findings
+          path: perlcritic-report.txt
+          if-no-files-found: ignore
